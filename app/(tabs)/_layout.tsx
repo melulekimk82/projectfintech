@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { Tabs, router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingScreen } from '@/components/LoadingScreen';
-import { Wallet, BarChart3, History, User } from 'lucide-react-native';
+import { Wallet, ChartBar as BarChart3, History, User } from 'lucide-react-native';
 
 export default function TabLayout() {
   const { user, userProfile, loading } = useAuth();
