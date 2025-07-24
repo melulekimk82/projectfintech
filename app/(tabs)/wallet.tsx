@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ScrollView, Modal } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { PaymentService } from '@/services/paymentService';
-import { Wallet as WalletIcon, Plus, Send, FileText, Package, X, CreditCard } from 'lucide-react-native';
+import { Wallet as WalletIcon, Plus, Send, FileText, Package, X, CreditCard, QrCode } from 'lucide-react-native';
 
 export default function WalletScreen() {
   const { userProfile, updateWalletBalance } = useAuth();
@@ -10,10 +10,12 @@ export default function WalletScreen() {
   const [invoiceId, setInvoiceId] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
   const [receiverEmail, setReceiverEmail] = useState('');
+  const [productCode, setProductCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [showTopUpModal, setShowTopUpModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [showProductModal, setShowProductModal] = useState(false);
 
   const formatCurrency = (amount: number) => `SZL ${amount.toFixed(2)}`;
 
@@ -21,6 +23,11 @@ export default function WalletScreen() {
     const amount = parseFloat(topUpAmount);
     if (!amount || amount <= 0) {
       Alert.alert('Error', 'Please enter a valid amount');
+      return;
+    }
+
+    if (amount > 10000) {
+      Alert.alert('Error', 'Maximum top-up amount is SZL 10,000');
       return;
     }
 
@@ -42,20 +49,31 @@ export default function WalletScreen() {
     }
   };
 
-  const handlePayment = async () => {
+  const handleSendMoney = async () => {
     const amount = parseFloat(paymentAmount);
     if (!amount || amount <= 0 || !receiverEmail) {
       Alert.alert('Error', 'Please enter valid payment details');
       return;
     }
 
+    if (amount > userProfile!.walletBalance) {
+      Alert.alert('Error', 'Insufficient funds');
+      return;
+    }
+
     setLoading(true);
     try {
-      // For demo purposes, we'll simulate finding a receiver
-      // In a real app, you'd search for users by email
+      // Find receiver by email
+      const receiverResult = await PaymentService.findUserByEmail(receiverEmail);
+      if (!receiverResult.success) {
+        Alert.alert('Error', 'Recipient not found');
+        setLoading(false);
+        return;
+      }
+
       const result = await PaymentService.processPayment(
         userProfile!.id,
-        'demo-receiver-id', // This would be the actual receiver ID
+        receiverResult.userId!,
         amount,
         'payment',
         `Payment to ${receiverEmail}`,
@@ -85,11 +103,20 @@ export default function WalletScreen() {
       return;
     }
 
+    if (amount > userProfile!.walletBalance) {
+      Alert.alert('Error', 'Insufficient funds');
+      return;
+    }
+
     setLoading(true);
     try {
+      // For demo, we'll create a mock merchant ID
+      // In production, you'd look up the invoice to find the merchant
+      const mockMerchantId = 'demo-merchant-' + invoiceId.slice(-4);
+      
       const result = await PaymentService.processPayment(
         userProfile!.id,
-        'demo-merchant-id', // This would be the actual merchant ID
+        mockMerchantId,
         amount,
         'invoice',
         `Invoice Payment - ${invoiceId}`,
@@ -112,6 +139,57 @@ export default function WalletScreen() {
     }
   };
 
+  const handleProductPayment = async () => {
+    const amount = parseFloat(paymentAmount);
+    if (!amount || amount <= 0 || !productCode) {
+      Alert.alert('Error', 'Please enter valid product details');
+      return;
+    }
+
+    if (amount > userProfile!.walletBalance) {
+      Alert.alert('Error', 'Insufficient funds');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // For demo, we'll create a mock merchant ID based on product code
+      const mockMerchantId = 'demo-merchant-' + productCode.slice(-4);
+      
+      const result = await PaymentService.processPayment(
+        userProfile!.id,
+        mockMerchantId,
+        amount,
+        'product',
+        `Product Purchase - ${productCode}`,
+        { productCode }
+      );
+
+      if (result.success) {
+        await updateWalletBalance(userProfile!.walletBalance - amount);
+        setPaymentAmount('');
+        setProductCode('');
+        setShowProductModal(false);
+        Alert.alert('Success', `Product ${productCode} purchased successfully`);
+      } else {
+        Alert.alert('Error', result.error || 'Payment failed');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Product payment failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetModal = (modalSetter: (value: boolean) => void) => {
+    setTopUpAmount('');
+    setPaymentAmount('');
+    setReceiverEmail('');
+    setInvoiceId('');
+    setProductCode('');
+    modalSetter(false);
+  };
+
   if (!userProfile) return null;
 
   return (
@@ -123,7 +201,7 @@ export default function WalletScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.balanceCard}>
           <View style={styles.balanceHeader}>
             <Text style={styles.balanceLabel}>Available Balance</Text>
@@ -167,7 +245,10 @@ export default function WalletScreen() {
             <Text style={styles.actionSubtitle}>Pay business invoice</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.actionCard}>
+          <TouchableOpacity 
+            style={styles.actionCard}
+            onPress={() => setShowProductModal(true)}
+          >
             <View style={[styles.actionIcon, { backgroundColor: '#F59E0B' }]}>
               <Package size={24} color="#FFFFFF" />
             </View>
@@ -205,7 +286,7 @@ export default function WalletScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Top Up Wallet</Text>
-              <TouchableOpacity onPress={() => setShowTopUpModal(false)}>
+              <TouchableOpacity onPress={() => resetModal(setShowTopUpModal)}>
                 <X size={24} color="#9CA3AF" />
               </TouchableOpacity>
             </View>
@@ -254,7 +335,7 @@ export default function WalletScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Send Money</Text>
-              <TouchableOpacity onPress={() => setShowPaymentModal(false)}>
+              <TouchableOpacity onPress={() => resetModal(setShowPaymentModal)}>
                 <X size={24} color="#9CA3AF" />
               </TouchableOpacity>
             </View>
@@ -281,9 +362,15 @@ export default function WalletScreen() {
                 keyboardType="numeric"
               />
 
+              <View style={styles.balanceInfo}>
+                <Text style={styles.balanceInfoText}>
+                  Available: {formatCurrency(userProfile.walletBalance)}
+                </Text>
+              </View>
+
               <TouchableOpacity
                 style={[styles.modalButton, loading && styles.buttonDisabled]}
-                onPress={handlePayment}
+                onPress={handleSendMoney}
                 disabled={loading}
               >
                 <Send size={20} color="#FFFFFF" />
@@ -302,7 +389,7 @@ export default function WalletScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Pay Invoice</Text>
-              <TouchableOpacity onPress={() => setShowInvoiceModal(false)}>
+              <TouchableOpacity onPress={() => resetModal(setShowInvoiceModal)}>
                 <X size={24} color="#9CA3AF" />
               </TouchableOpacity>
             </View>
@@ -311,7 +398,7 @@ export default function WalletScreen() {
               <Text style={styles.inputLabel}>Invoice ID</Text>
               <TextInput
                 style={styles.modalInput}
-                placeholder="Enter invoice ID"
+                placeholder="Enter invoice ID (e.g., INV-2024-001)"
                 placeholderTextColor="#6B7280"
                 value={invoiceId}
                 onChangeText={setInvoiceId}
@@ -327,6 +414,12 @@ export default function WalletScreen() {
                 keyboardType="numeric"
               />
 
+              <View style={styles.balanceInfo}>
+                <Text style={styles.balanceInfoText}>
+                  Available: {formatCurrency(userProfile.walletBalance)}
+                </Text>
+              </View>
+
               <TouchableOpacity
                 style={[styles.modalButton, loading && styles.buttonDisabled]}
                 onPress={handleInvoicePayment}
@@ -335,6 +428,63 @@ export default function WalletScreen() {
                 <FileText size={20} color="#FFFFFF" />
                 <Text style={styles.modalButtonText}>
                   {loading ? 'Processing...' : 'Pay Invoice'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Buy Products Modal */}
+      <Modal visible={showProductModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Buy Products</Text>
+              <TouchableOpacity onPress={() => resetModal(setShowProductModal)}>
+                <X size={24} color="#9CA3AF" />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.modalBody}>
+              <Text style={styles.inputLabel}>Product Code</Text>
+              <View style={styles.productCodeContainer}>
+                <TextInput
+                  style={styles.productCodeInput}
+                  placeholder="Enter product code (e.g., PROD-001)"
+                  placeholderTextColor="#6B7280"
+                  value={productCode}
+                  onChangeText={setProductCode}
+                />
+                <TouchableOpacity style={styles.scanButton}>
+                  <QrCode size={20} color="#3B82F6" />
+                </TouchableOpacity>
+              </View>
+              
+              <Text style={styles.inputLabel}>Amount (SZL)</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Enter amount"
+                placeholderTextColor="#6B7280"
+                value={paymentAmount}
+                onChangeText={setPaymentAmount}
+                keyboardType="numeric"
+              />
+
+              <View style={styles.balanceInfo}>
+                <Text style={styles.balanceInfoText}>
+                  Available: {formatCurrency(userProfile.walletBalance)}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.modalButton, loading && styles.buttonDisabled]}
+                onPress={handleProductPayment}
+                disabled={loading}
+              >
+                <Package size={20} color="#FFFFFF" />
+                <Text style={styles.modalButtonText}>
+                  {loading ? 'Processing...' : 'Buy Product'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -506,6 +656,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#4B5563',
   },
+  productCodeContainer: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  productCodeInput: {
+    flex: 1,
+    backgroundColor: '#374151',
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 16,
+    color: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#4B5563',
+  },
+  scanButton: {
+    backgroundColor: '#374151',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#4B5563',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   quickAmounts: {
     flexDirection: 'row',
     gap: 8,
@@ -523,6 +696,16 @@ const styles = StyleSheet.create({
     color: '#E5E7EB',
     fontSize: 14,
     fontWeight: '500',
+  },
+  balanceInfo: {
+    backgroundColor: '#374151',
+    borderRadius: 8,
+    padding: 12,
+  },
+  balanceInfoText: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    textAlign: 'center',
   },
   modalButton: {
     backgroundColor: '#3B82F6',

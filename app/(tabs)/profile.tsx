@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch, Alert, Share } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
-import { User, Mail, Shield, Bell, Moon, CircleHelp as HelpCircle, LogOut, ChevronRight, Settings, CreditCard, FileText } from 'lucide-react-native';
+import { User, Mail, Shield, Bell, Moon, CircleHelp as HelpCircle, LogOut, ChevronRight, Settings, CreditCard, FileText, Download, BarChart } from 'lucide-react-native';
 
 export default function ProfileScreen() {
   const { userProfile, logout } = useAuth();
@@ -19,6 +19,38 @@ export default function ProfileScreen() {
     );
   };
 
+  const handleExportData = async () => {
+    try {
+      const reportData = `PayFlow Account Report
+Name: ${userProfile?.firstName} ${userProfile?.lastName}
+Email: ${userProfile?.email}
+Role: ${userProfile?.role}
+Wallet Balance: SZL ${userProfile?.walletBalance.toFixed(2)}
+Account Created: ${userProfile?.createdAt.toLocaleDateString()}
+
+Generated on: ${new Date().toLocaleDateString()}`;
+
+      await Share.share({
+        message: reportData,
+        title: 'PayFlow Account Report',
+      });
+    } catch (error) {
+      Alert.alert('Error', 'Failed to export data');
+    }
+  };
+
+  const handleGenerateReport = () => {
+    Alert.alert(
+      'Generate Report',
+      'What type of report would you like to generate?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Transaction History', onPress: handleExportData },
+        { text: 'Account Summary', onPress: handleExportData },
+      ]
+    );
+  };
+
   if (!userProfile) return null;
 
   const menuItems = [
@@ -26,25 +58,37 @@ export default function ProfileScreen() {
       icon: <CreditCard size={20} color="#9CA3AF" />,
       title: 'Payment Methods',
       subtitle: 'Manage your cards and accounts',
-      onPress: () => {},
+      onPress: () => Alert.alert('Coming Soon', 'Payment methods management will be available soon'),
     },
     {
       icon: <FileText size={20} color="#9CA3AF" />,
       title: 'Transaction Receipts',
       subtitle: 'Download payment receipts',
-      onPress: () => {},
+      onPress: () => Alert.alert('Coming Soon', 'Receipt downloads will be available soon'),
+    },
+    {
+      icon: <BarChart size={20} color="#9CA3AF" />,
+      title: 'Generate Reports',
+      subtitle: 'Export transaction data',
+      onPress: handleGenerateReport,
+    },
+    {
+      icon: <Download size={20} color="#9CA3AF" />,
+      title: 'Export Data',
+      subtitle: 'Download your account data',
+      onPress: handleExportData,
     },
     {
       icon: <Shield size={20} color="#9CA3AF" />,
       title: 'Security',
       subtitle: 'Manage your account security',
-      onPress: () => {},
+      onPress: () => Alert.alert('Security', 'Your account is protected by Firebase Authentication'),
     },
     {
       icon: <HelpCircle size={20} color="#9CA3AF" />,
       title: 'Help & Support',
       subtitle: 'Get help with your account',
-      onPress: () => {},
+      onPress: () => Alert.alert('Support', 'For support, please contact: support@payflow.sz'),
     },
   ];
 
@@ -57,7 +101,7 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.profileCard}>
           <View style={styles.avatarContainer}>
             <View style={styles.avatar}>
@@ -77,6 +121,9 @@ export default function ProfileScreen() {
             <Text style={styles.profileRole}>
               {userProfile.role === 'merchant' ? 'Merchant Account' : 'Client Account'}
             </Text>
+            {userProfile.businessName && (
+              <Text style={styles.businessName}>{userProfile.businessName}</Text>
+            )}
             <View style={styles.emailContainer}>
               <Mail size={16} color="#9CA3AF" />
               <Text style={styles.profileEmail}>{userProfile.email}</Text>
@@ -93,9 +140,9 @@ export default function ProfileScreen() {
             </View>
             <View style={styles.walletStat}>
               <Text style={styles.walletStatValue}>
-                {userProfile.role === 'merchant' ? 'Active' : 'Premium'}
+                {userProfile.role === 'merchant' ? 'Business' : 'Personal'}
               </Text>
-              <Text style={styles.walletStatLabel}>Account Status</Text>
+              <Text style={styles.walletStatLabel}>Account Type</Text>
             </View>
           </View>
         </View>
@@ -161,6 +208,7 @@ export default function ProfileScreen() {
         <View style={styles.footer}>
           <Text style={styles.footerText}>PayFlow v1.0.0</Text>
           <Text style={styles.footerSubtext}>Secure digital wallet for businesses</Text>
+          <Text style={styles.footerSubtext}>Built with Firebase & React Native</Text>
         </View>
       </ScrollView>
     </View>
@@ -241,6 +289,11 @@ const styles = StyleSheet.create({
   profileRole: {
     fontSize: 14,
     color: '#3B82F6',
+    fontWeight: '600',
+  },
+  businessName: {
+    fontSize: 16,
+    color: '#10B981',
     fontWeight: '600',
   },
   emailContainer: {

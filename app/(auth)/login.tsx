@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { Link, router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
-import { LogIn, Eye, EyeOff } from 'lucide-react-native';
+import { LogIn, Eye, EyeOff, Wallet } from 'lucide-react-native';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -17,24 +17,60 @@ export default function LoginScreen() {
       return;
     }
 
+    if (!email.includes('@')) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+
     setLoading(true);
     try {
       await signIn(email, password);
       router.replace('/(tabs)');
-    } catch (error) {
-      Alert.alert('Login Failed', 'Invalid email or password');
+    } catch (error: any) {
+      Alert.alert('Login Failed', error.message || 'Invalid email or password');
     } finally {
       setLoading(false);
     }
   };
 
+  const fillDemoCredentials = (type: 'client' | 'merchant') => {
+    if (type === 'client') {
+      setEmail('client@demo.com');
+      setPassword('demo123');
+    } else {
+      setEmail('merchant@demo.com');
+      setPassword('demo123');
+    }
+  };
+
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView 
+      style={styles.container} 
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
       <View style={styles.content}>
         <View style={styles.header}>
-          <LogIn size={48} color="#3B82F6" />
+          <Wallet size={64} color="#3B82F6" />
           <Text style={styles.title}>Welcome to PayFlow</Text>
-          <Text style={styles.subtitle}>Sign in to your account</Text>
+          <Text style={styles.subtitle}>Sign in to your digital wallet</Text>
+        </View>
+
+        <View style={styles.demoSection}>
+          <Text style={styles.demoTitle}>Demo Accounts</Text>
+          <View style={styles.demoButtons}>
+            <TouchableOpacity 
+              style={styles.demoButton}
+              onPress={() => fillDemoCredentials('client')}
+            >
+              <Text style={styles.demoButtonText}>Client Demo</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.demoButton}
+              onPress={() => fillDemoCredentials('merchant')}
+            >
+              <Text style={styles.demoButtonText}>Merchant Demo</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.form}>
@@ -48,6 +84,7 @@ export default function LoginScreen() {
               onChangeText={setEmail}
               keyboardType="email-address"
               autoCapitalize="none"
+              autoCorrect={false}
             />
           </View>
 
@@ -61,6 +98,7 @@ export default function LoginScreen() {
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
+                autoCorrect={false}
               />
               <TouchableOpacity
                 style={styles.eyeButton}
@@ -80,6 +118,7 @@ export default function LoginScreen() {
             onPress={handleLogin}
             disabled={loading}
           >
+            <LogIn size={20} color="#FFFFFF" />
             <Text style={styles.buttonText}>
               {loading ? 'Signing In...' : 'Sign In'}
             </Text>
@@ -93,7 +132,7 @@ export default function LoginScreen() {
           </View>
         </View>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -109,7 +148,7 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    marginBottom: 48,
+    marginBottom: 32,
   },
   title: {
     fontSize: 32,
@@ -121,6 +160,35 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 16,
     color: '#9CA3AF',
+    textAlign: 'center',
+  },
+  demoSection: {
+    marginBottom: 32,
+  },
+  demoTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  demoButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  demoButton: {
+    flex: 1,
+    backgroundColor: '#374151',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#4B5563',
+  },
+  demoButtonText: {
+    color: '#E5E7EB',
+    fontSize: 14,
+    fontWeight: '500',
   },
   form: {
     gap: 24,
@@ -163,7 +231,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#3B82F6',
     borderRadius: 12,
     padding: 16,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
     marginTop: 8,
   },
   buttonDisabled: {

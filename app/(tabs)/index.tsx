@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { PaymentService } from '@/services/paymentService';
+import { RealTimeService } from '@/services/realTimeService';
 import { Transaction } from '@/types';
 import { 
   FileText, 
@@ -11,7 +12,12 @@ import {
   Bell, 
   Sun, 
   User as UserIcon,
-  TrendingUp 
+  TrendingUp,
+  Plus,
+  Send,
+  Package,
+  ArrowUpRight,
+  ArrowDownLeft
 } from 'lucide-react-native';
 
 export default function DashboardScreen() {
@@ -25,47 +31,75 @@ export default function DashboardScreen() {
     totalClients: 0,
   });
 
-  const loadData = async () => {
+  useEffect(() => {
     if (!userProfile) return;
 
-    const userTransactions = await PaymentService.getUserTransactions(userProfile.id);
-    setTransactions(userTransactions);
+    // Subscribe to real-time transactions
+    const unsubscribe = RealTimeService.subscribeToUserTransactions(
+      userProfile.id,
+      (newTransactions) => {
+        setTransactions(newTransactions);
+        
+        if (userProfile.role === 'merchant') {
+          // Calculate merchant stats
+          const receivedTransactions = newTransactions.filter(
+            t => t.receiverId === userProfile.id && t.status === 'completed'
+          );
+          const totalRevenue = receivedTransactions.reduce((sum, t) => sum + t.amount, 0);
+          const invoiceTransactions = receivedTransactions.filter(t => t.type === 'invoice');
+          const productTransactions = receivedTransactions.filter(t => t.type === 'product');
+          const uniqueClients = new Set(receivedTransactions.map(t => t.payerId)).size;
 
-    if (userProfile.role === 'merchant') {
-      // Calculate merchant stats
-      const completedTransactions = userTransactions.filter(t => t.status === 'completed' && t.receiverId === userProfile.id);
-      const totalRevenue = completedTransactions.reduce((sum, t) => sum + t.amount, 0);
-      const invoiceTransactions = completedTransactions.filter(t => t.type === 'invoice');
-      const pendingTransactions = userTransactions.filter(t => t.status === 'pending' && t.receiverId === userProfile.id);
-      const pendingAmount = pendingTransactions.reduce((sum, t) => sum + t.amount, 0);
-      
-      setStats({
-        totalInvoices: invoiceTransactions.length,
-        totalRevenue,
-        pendingAmount,
-        totalClients: new Set(completedTransactions.map(t => t.payerId)).size,
-      });
-    }
-  };
+          setStats({
+            totalInvoices: invoiceTransactions.length,
+            totalRevenue,
+            pendingAmount: 0, // For demo purposes
+            totalClients: uniqueClients,
+          });
+        }
+      }
+    );
 
-  useEffect(() => {
-    loadData();
+    return unsubscribe;
   }, [userProfile]);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadData();
-    setRefreshing(false);
+    // The real-time listener will automatically update the data
+    setTimeout(() => setRefreshing(false), 1000);
   };
 
   if (!userProfile) return null;
 
   const formatCurrency = (amount: number) => `SZL ${amount.toFixed(2)}`;
 
+  const getTransactionIcon = (transaction: Transaction) => {
+    if (transaction.type === 'topup') {
+      return <TrendingUp size={20} color="#10B981" />;
+    }
+    return transaction.payerId === userProfile.id ? 
+      <ArrowUpRight size={20} color="#EF4444" /> : 
+      <ArrowDownLeft size={20} color="#10B981" />;
+  };
+
+  const getTransactionAmount = (transaction: Transaction) => {
+    if (transaction.type === 'topup') {
+      return `+${formatCurrency(transaction.amount)}`;
+    }
+    const isOutgoing = transaction.payerId === userProfile.id;
+    return `${isOutgoing ? '-' : '+'}${formatCurrency(transaction.amount)}`;
+  };
+
+  const getTransactionColor = (transaction: Transaction) => {
+    if (transaction.type === 'topup') return '#10B981';
+    return transaction.payerId === userProfile.id ? '#EF4444' : '#10B981';
+  };
+
   const renderMerchantDashboard = () => (
     <ScrollView 
       style={styles.container} 
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      showsVerticalScrollIndicator={false}
     >
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -89,15 +123,22 @@ export default function DashboardScreen() {
         </View>
       </View>
 
+      <View style={styles.merchantWelcome}>
+        <Text style={styles.merchantWelcomeText}>Welcome back, {userProfile.firstName}!</Text>
+        <Text style={styles.merchantWelcomeSubtext}>
+          {userProfile.businessName || 'Your Business'} • Merchant Account
+        </Text>
+      </View>
+
       <View style={styles.statsGrid}>
         <View style={styles.statCard}>
           <View style={styles.statContent}>
             <View style={styles.statText}>
               <Text style={styles.statLabel}>Total Invoices</Text>
               <Text style={styles.statValue}>{stats.totalInvoices}</Text>
-              <Text style={styles.statChange}>+0% from last month</Text>
+              <Text style={styles.statChange}>InvoiceFlow integration</Text>
             </View>
-            <View style={[styles.statIcon, { backgroundColor: '#1E40AF' }]}>
+            <View style={[styles.statIcon, { backgroundColor: '#8B5CF6' }]}>
               <FileText size={24} color="#FFFFFF" />
             </View>
           </View>
@@ -108,7 +149,7 @@ export default function DashboardScreen() {
             <View style={styles.statText}>
               <Text style={styles.statLabel}>Total Revenue</Text>
               <Text style={styles.statValue}>{formatCurrency(stats.totalRevenue)}</Text>
-              <Text style={styles.statChange}>+0% from last month</Text>
+              <Text style={styles.statChange}>All-time earnings</Text>
             </View>
             <View style={[styles.statIcon, { backgroundColor: '#059669' }]}>
               <DollarSign size={24} color="#FFFFFF" />
@@ -119,11 +160,11 @@ export default function DashboardScreen() {
         <View style={styles.statCard}>
           <View style={styles.statContent}>
             <View style={styles.statText}>
-              <Text style={styles.statLabel}>Pending Amount</Text>
-              <Text style={styles.statValue}>{formatCurrency(stats.pendingAmount)}</Text>
-              <Text style={styles.statChange}>+0% from last month</Text>
+              <Text style={styles.statLabel}>Wallet Balance</Text>
+              <Text style={styles.statValue}>{formatCurrency(userProfile.walletBalance)}</Text>
+              <Text style={styles.statChange}>Available funds</Text>
             </View>
-            <View style={[styles.statIcon, { backgroundColor: '#DC2626' }]}>
+            <View style={[styles.statIcon, { backgroundColor: '#3B82F6' }]}>
               <Clock size={24} color="#FFFFFF" />
             </View>
           </View>
@@ -134,7 +175,7 @@ export default function DashboardScreen() {
             <View style={styles.statText}>
               <Text style={styles.statLabel}>Total Clients</Text>
               <Text style={styles.statValue}>{stats.totalClients}</Text>
-              <Text style={styles.statChange}>+0% from last month</Text>
+              <Text style={styles.statChange}>Unique customers</Text>
             </View>
             <View style={[styles.statIcon, { backgroundColor: '#7C3AED' }]}>
               <Users size={24} color="#FFFFFF" />
@@ -143,14 +184,34 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      <View style={styles.chartSection}>
-        <View style={styles.chartCard}>
-          <Text style={styles.chartTitle}>Revenue Overview</Text>
-          <View style={styles.chartPlaceholder}>
-            <TrendingUp size={48} color="#3B82F6" />
-            <Text style={styles.chartText}>Chart visualization coming soon</Text>
+      <View style={styles.recentSection}>
+        <Text style={styles.sectionTitle}>Recent Payments</Text>
+        {transactions.slice(0, 5).map((transaction) => (
+          <View key={transaction.id} style={styles.transactionItem}>
+            <View style={styles.transactionIcon}>
+              {getTransactionIcon(transaction)}
+            </View>
+            <View style={styles.transactionContent}>
+              <Text style={styles.transactionTitle}>{transaction.description}</Text>
+              <Text style={styles.transactionDate}>
+                {transaction.createdAt.toLocaleDateString()} • {transaction.createdAt.toLocaleTimeString()}
+              </Text>
+            </View>
+            <Text style={[
+              styles.transactionAmount,
+              { color: getTransactionColor(transaction) }
+            ]}>
+              {getTransactionAmount(transaction)}
+            </Text>
           </View>
-        </View>
+        ))}
+        {transactions.length === 0 && (
+          <View style={styles.emptyState}>
+            <FileText size={48} color="#4B5563" />
+            <Text style={styles.emptyTitle}>No transactions yet</Text>
+            <Text style={styles.emptySubtext}>Payments will appear here</Text>
+          </View>
+        )}
       </View>
     </ScrollView>
   );
@@ -159,6 +220,7 @@ export default function DashboardScreen() {
     <ScrollView 
       style={styles.container}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      showsVerticalScrollIndicator={false}
     >
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -190,44 +252,56 @@ export default function DashboardScreen() {
       <View style={styles.balanceCard}>
         <Text style={styles.balanceLabel}>Wallet Balance</Text>
         <Text style={styles.balanceValue}>{formatCurrency(userProfile.walletBalance)}</Text>
+        <Text style={styles.balanceSubtext}>PayFlow Digital Wallet</Text>
       </View>
 
       <View style={styles.quickActions}>
-        <TouchableOpacity style={styles.actionButton}>
-          <DollarSign size={24} color="#FFFFFF" />
+        <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#10B981' }]}>
+          <Plus size={24} color="#FFFFFF" />
           <Text style={styles.actionButtonText}>Top Up</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton}>
+        <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#3B82F6' }]}>
+          <Send size={24} color="#FFFFFF" />
+          <Text style={styles.actionButtonText}>Send Money</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#8B5CF6' }]}>
           <FileText size={24} color="#FFFFFF" />
           <Text style={styles.actionButtonText}>Pay Invoice</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#F59E0B' }]}>
+          <Package size={24} color="#FFFFFF" />
+          <Text style={styles.actionButtonText}>Buy Products</Text>
         </TouchableOpacity>
       </View>
 
       <View style={styles.recentSection}>
         <Text style={styles.sectionTitle}>Recent Transactions</Text>
-        {transactions.slice(0, 5).map((transaction) => (
+        {transactions.slice(0, 8).map((transaction) => (
           <View key={transaction.id} style={styles.transactionItem}>
             <View style={styles.transactionIcon}>
-              {transaction.type === 'topup' ? (
-                <TrendingUp size={20} color="#10B981" />
-              ) : (
-                <DollarSign size={20} color="#EF4444" />
-              )}
+              {getTransactionIcon(transaction)}
             </View>
             <View style={styles.transactionContent}>
               <Text style={styles.transactionTitle}>{transaction.description}</Text>
               <Text style={styles.transactionDate}>
-                {transaction.createdAt.toLocaleDateString()}
+                {transaction.createdAt.toLocaleDateString()} • {transaction.createdAt.toLocaleTimeString()}
               </Text>
             </View>
             <Text style={[
               styles.transactionAmount,
-              { color: transaction.type === 'topup' ? '#10B981' : '#EF4444' }
+              { color: getTransactionColor(transaction) }
             ]}>
-              {transaction.type === 'topup' ? '+' : '-'}{formatCurrency(transaction.amount)}
+              {getTransactionAmount(transaction)}
             </Text>
           </View>
         ))}
+        {transactions.length === 0 && (
+          <View style={styles.emptyState}>
+            <DollarSign size={48} color="#4B5563" />
+            <Text style={styles.emptyTitle}>No transactions yet</Text>
+            <Text style={styles.emptySubtext}>Start by topping up your wallet</Text>
+          </View>
+        )}
       </View>
     </ScrollView>
   );
@@ -283,6 +357,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  merchantWelcome: {
+    paddingHorizontal: 24,
+    marginBottom: 24,
+  },
+  merchantWelcomeText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  merchantWelcomeSubtext: {
+    fontSize: 14,
+    color: '#9CA3AF',
+  },
   welcomeSection: {
     paddingHorizontal: 24,
     marginBottom: 24,
@@ -314,16 +402,21 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: 'bold',
     color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  balanceSubtext: {
+    fontSize: 12,
+    color: '#6B7280',
   },
   quickActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 12,
     paddingHorizontal: 24,
     marginBottom: 32,
   },
   actionButton: {
-    flex: 1,
-    backgroundColor: '#3B82F6',
+    width: '47%',
     borderRadius: 12,
     padding: 16,
     alignItems: 'center',
@@ -365,37 +458,13 @@ const styles = StyleSheet.create({
   },
   statChange: {
     fontSize: 12,
-    color: '#10B981',
+    color: '#6B7280',
   },
   statIcon: {
     borderRadius: 12,
     padding: 12,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  chartSection: {
-    paddingHorizontal: 24,
-  },
-  chartCard: {
-    backgroundColor: '#1F2937',
-    borderRadius: 16,
-    padding: 20,
-  },
-  chartTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 16,
-  },
-  chartPlaceholder: {
-    height: 200,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-  },
-  chartText: {
-    color: '#9CA3AF',
-    fontSize: 14,
   },
   recentSection: {
     paddingHorizontal: 24,
@@ -437,5 +506,21 @@ const styles = StyleSheet.create({
   transactionAmount: {
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    gap: 12,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    textAlign: 'center',
   },
 });

@@ -7,7 +7,7 @@ export class PaymentService {
     payerId: string,
     receiverId: string,
     amount: number,
-    type: 'payment' | 'invoice' | 'product',
+    type: 'payment' | 'invoice' | 'product' | 'topup',
     description: string,
     metadata?: any
   ): Promise<{ success: boolean; transactionId?: string; error?: string }> {
@@ -17,34 +17,49 @@ export class PaymentService {
         const receiverRef = doc(db, 'users', receiverId);
 
         const payerDoc = await transaction.get(payerRef);
-        const receiverDoc = await transaction.get(receiverRef);
-
-        if (!payerDoc.exists() || !receiverDoc.exists()) {
-          throw new Error('User not found');
+        
+        if (!payerDoc.exists()) {
+          throw new Error('Payer not found');
         }
 
         const payerData = payerDoc.data();
-        const receiverData = receiverDoc.data();
 
-        if (payerData.walletBalance < amount) {
-          throw new Error('Insufficient funds');
+        // For topup, we don't need a receiver
+        if (type !== 'topup') {
+          const receiverDoc = await transaction.get(receiverRef);
+          if (!receiverDoc.exists()) {
+            throw new Error('Receiver not found');
+          }
+
+          if (payerData.walletBalance < amount) {
+            throw new Error('Insufficient funds');
+          }
+
+          const receiverData = receiverDoc.data();
+
+          // Update payer balance
+          transaction.update(payerRef, {
+            walletBalance: payerData.walletBalance - amount,
+            updatedAt: new Date(),
+          });
+
+          // Update receiver balance
+          transaction.update(receiverRef, {
+            walletBalance: receiverData.walletBalance + amount,
+            updatedAt: new Date(),
+          });
+        } else {
+          // For topup, just add to payer balance
+          transaction.update(payerRef, {
+            walletBalance: payerData.walletBalance + amount,
+            updatedAt: new Date(),
+          });
         }
-
-        // Update balances
-        transaction.update(payerRef, {
-          walletBalance: payerData.walletBalance - amount,
-          updatedAt: new Date(),
-        });
-
-        transaction.update(receiverRef, {
-          walletBalance: receiverData.walletBalance + amount,
-          updatedAt: new Date(),
-        });
 
         // Create transaction record
         const transactionData: Omit<Transaction, 'id'> = {
           payerId,
-          receiverId,
+          receiverId: type === 'topup' ? payerId : receiverId,
           amount,
           type,
           description,
@@ -66,66 +81,114 @@ export class PaymentService {
   }
 
   static async topUpWallet(userId: string, amount: number): Promise<{ success: boolean; error?: string }> {
-    try {
-      await runTransaction(db, async (transaction) => {
-        const userRef = doc(db, 'users', userId);
-        const userDoc = await transaction.get(userRef);
-
-        if (!userDoc.exists()) {
-          throw new Error('User not found');
-        }
-
-        const userData = userDoc.data();
-        transaction.update(userRef, {
-          walletBalance: userData.walletBalance + amount,
-          updatedAt: new Date(),
-        });
-
-        // Create transaction record
-        const transactionData: Omit<Transaction, 'id'> = {
-          payerId: userId,
-          receiverId: userId,
-          amount,
-          type: 'topup',
-          description: 'Wallet Top-up',
-          status: 'completed',
-          createdAt: new Date(),
-        };
-
-        const transactionRef = doc(collection(db, 'transactions'));
-        transaction.set(transactionRef, transactionData);
-      });
-
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Top-up failed' };
-    }
+    return this.processPayment(
+      userId,
+      userId,
+      amount,
+      'topup',
+      `Wallet Top-up - SZL ${amount.toFixed(2)}`
+    );
   }
 
   static async getUserTransactions(userId: string): Promise<Transaction[]> {
     try {
-      const q = query(
+      // Get transactions where user is either payer or receiver
+      const payerQuery = query(
         collection(db, 'transactions'),
         where('payerId', '==', userId),
         orderBy('createdAt', 'desc')
       );
 
-      const querySnapshot = await getDocs(q);
-      const transactions: Transaction[] = [];
+      const receiverQuery = query(
+        collection(db, 'transactions'),
+        where('receiverId', '==', userId),
+        orderBy('createdAt', 'desc')
+      );
 
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        transactions.push({
-          id: doc.id,
-          ...data,
-          createdAt: data.createdAt?.toDate?.() || new Date(),
-        } as Transaction);
+      const [payerSnapshot, receiverSnapshot] = await Promise.all([
+        getDocs(payerQuery),
+        getDocs(receiverQuery)
+      ]);
+
+      const transactions: Transaction[] = [];
+      const transactionIds = new Set();
+
+      // Add payer transactions
+      payerSnapshot.forEach((doc) => {
+        if (!transactionIds.has(doc.id)) {
+          const data = doc.data();
+          transactions.push({
+            id: doc.id,
+            ...data,
+            createdAt: data.createdAt?.toDate?.() || new Date(),
+          } as Transaction);
+          transactionIds.add(doc.id);
+        }
       });
 
-      return transactions;
+      // Add receiver transactions (avoid duplicates)
+      receiverSnapshot.forEach((doc) => {
+        if (!transactionIds.has(doc.id)) {
+          const data = doc.data();
+          transactions.push({
+            id: doc.id,
+            ...data,
+            createdAt: data.createdAt?.toDate?.() || new Date(),
+          } as Transaction);
+          transactionIds.add(doc.id);
+        }
+      });
+
+      // Sort by date descending
+      return transactions.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     } catch (error) {
       console.error('Error fetching transactions:', error);
       return [];
+    }
+  }
+
+  static async findUserByEmail(email: string): Promise<{ success: boolean; userId?: string; error?: string }> {
+    try {
+      const q = query(collection(db, 'users'), where('email', '==', email));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        return { success: false, error: 'User not found' };
+      }
+
+      const userDoc = querySnapshot.docs[0];
+      return { success: true, userId: userDoc.id };
+    } catch (error) {
+      return { success: false, error: 'Failed to find user' };
+    }
+  }
+
+  static async getMerchantStats(merchantId: string) {
+    try {
+      const transactions = await this.getUserTransactions(merchantId);
+      const receivedTransactions = transactions.filter(t => t.receiverId === merchantId && t.status === 'completed');
+      
+      const totalRevenue = receivedTransactions.reduce((sum, t) => sum + t.amount, 0);
+      const invoiceTransactions = receivedTransactions.filter(t => t.type === 'invoice');
+      const productTransactions = receivedTransactions.filter(t => t.type === 'product');
+      const uniqueClients = new Set(receivedTransactions.map(t => t.payerId)).size;
+
+      return {
+        totalRevenue,
+        totalInvoices: invoiceTransactions.length,
+        totalProducts: productTransactions.length,
+        totalClients: uniqueClients,
+        recentTransactions: receivedTransactions.slice(0, 10),
+      };
+    } catch (error) {
+      console.error('Error getting merchant stats:', error);
+      return {
+        totalRevenue: 0,
+        totalInvoices: 0,
+        totalProducts: 0,
+        totalClients: 0,
+        recentTransactions: [],
+      };
     }
   }
 }

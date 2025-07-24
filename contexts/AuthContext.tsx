@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '@/config/firebase';
+import { RealTimeService } from '@/services/realTimeService';
 import { User } from '@/types';
 
 interface AuthContextType {
@@ -26,29 +27,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(firebaseUser);
       
       if (firebaseUser) {
-        // Fetch user profile from Firestore
-        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-        if (userDoc.exists()) {
-          const userData = userDoc.data() as User;
-          setUserProfile({
-            ...userData,
-            id: firebaseUser.uid,
-            createdAt: userData.createdAt?.toDate?.() || new Date(),
-            updatedAt: userData.updatedAt?.toDate?.() || new Date(),
-          });
-        }
+        // Subscribe to real-time user profile updates
+        const unsubscribeProfile = RealTimeService.subscribeToUserProfile(
+          firebaseUser.uid,
+          (profile) => {
+            setUserProfile(profile);
+            setLoading(false);
+          }
+        );
+
+        return unsubscribeProfile;
       } else {
         setUserProfile(null);
+        setLoading(false);
       }
-      
-      setLoading(false);
     });
 
     return unsubscribe;
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    await signInWithEmailAndPassword(auth, email, password);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (error: any) {
+      throw new Error(error.message || 'Login failed');
+    }
   };
 
   const signUp = async (
@@ -59,50 +62,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     lastName: string,
     businessName?: string
   ) => {
-    const { user: firebaseUser } = await createUserWithEmailAndPassword(auth, email, password);
-    
-    // Create user profile in Firestore
-    const userData: Omit<User, 'id'> = {
-      email,
-      role,
-      firstName,
-      lastName,
-      walletBalance: 0,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+    try {
+      const { user: firebaseUser } = await createUserWithEmailAndPassword(auth, email, password);
+      
+      // Create user profile in Firestore
+      const userData: Omit<User, 'id'> = {
+        email,
+        role,
+        firstName,
+        lastName,
+        businessName: role === 'merchant' ? businessName : undefined,
+        walletBalance: role === 'client' ? 100 : 0, // Give clients SZL 100 to start
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
 
-    await setDoc(doc(db, 'users', firebaseUser.uid), userData);
-
-    // If merchant, create merchant profile
-    if (role === 'merchant' && businessName) {
-      await setDoc(doc(db, 'merchants', firebaseUser.uid), {
-        id: firebaseUser.uid,
-        businessName,
-        totalRevenue: 0,
-        totalInvoices: 0,
-        pendingAmount: 0,
-        totalClients: 0,
-        linkedSystems: {
-          stockFlow: false,
-          invoiceFlow: false,
-        },
-      });
+      await setDoc(doc(db, 'users', firebaseUser.uid), userData);
+    } catch (error: any) {
+      throw new Error(error.message || 'Signup failed');
     }
   };
 
   const logout = async () => {
-    await signOut(auth);
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   };
 
   const updateWalletBalance = async (newBalance: number) => {
     if (user && userProfile) {
-      await updateDoc(doc(db, 'users', user.uid), {
-        walletBalance: newBalance,
-        updatedAt: new Date(),
-      });
-      
-      setUserProfile(prev => prev ? { ...prev, walletBalance: newBalance } : null);
+      try {
+        await updateDoc(doc(db, 'users', user.uid), {
+          walletBalance: newBalance,
+          updatedAt: new Date(),
+        });
+        
+        // The real-time listener will update the userProfile automatically
+      } catch (error) {
+        console.error('Error updating wallet balance:', error);
+      }
     }
   };
 

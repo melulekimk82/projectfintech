@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Tabs, router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
+import { LoadingScreen } from '@/components/LoadingScreen';
 import { Wallet, BarChart3, History, User } from 'lucide-react-native';
 
 export default function TabLayout() {
@@ -12,7 +13,11 @@ export default function TabLayout() {
     }
   }, [user, loading]);
 
-  if (loading || !user || !userProfile) {
+  if (loading) {
+    return <LoadingScreen />;
+  }
+
+  if (!user || !userProfile) {
     return null;
   }
 
@@ -24,9 +29,16 @@ export default function TabLayout() {
           backgroundColor: '#1F2937',
           borderTopColor: '#374151',
           borderTopWidth: 1,
+          height: 80,
+          paddingBottom: 20,
+          paddingTop: 8,
         },
         tabBarActiveTintColor: '#3B82F6',
         tabBarInactiveTintColor: '#9CA3AF',
+        tabBarLabelStyle: {
+          fontSize: 12,
+          fontWeight: '600',
+        },
       }}
     >
       <Tabs.Screen
