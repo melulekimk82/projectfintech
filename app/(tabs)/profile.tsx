@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch, Alert, Share } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
-import { User, Mail, Shield, Bell, Moon, CircleHelp as HelpCircle, LogOut, ChevronRight, Settings, CreditCard, FileText, Download, BarChart } from 'lucide-react-native';
+import { User, Mail, Shield, Bell, Moon, CircleHelp as HelpCircle, LogOut, ChevronRight, Settings, CreditCard, FileText, Download, ChartBar as BarChart } from 'lucide-react-native';
 
 export default function ProfileScreen() {
   const { userProfile, logout } = useAuth();
