@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert,
 import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { MoMoService, PaymentReference } from '@/services/momoService';
-import { Check, X, Search, Clock, AlertCircle, Building2, Smartphone } from 'lucide-react-native';
+import { Check, X, Search, Clock, CircleAlert as AlertCircle, Building2, Smartphone } from 'lucide-react-native';
 
 interface AdminPanelProps {
   adminId: string;
