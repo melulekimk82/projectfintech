@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { Tabs, router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingScreen } from '@/components/LoadingScreen';
-import { Wallet, ChartBar as BarChart3, History, User } from 'lucide-react-native';
+import { Wallet, ChartBar as BarChart3, History, User, Shield } from 'lucide-react-native';
 
 export default function TabLayout() {
   const { user, userProfile, loading } = useAuth();
@@ -77,6 +77,17 @@ export default function TabLayout() {
           ),
         }}
       />
+      {userProfile.role === 'merchant' && (
+        <Tabs.Screen
+          name="admin"
+          options={{
+            title: 'Admin',
+            tabBarIcon: ({ size, color }) => (
+              <Shield size={size} color={color} />
+            ),
+          }}
+        />
+      )}
     </Tabs>
   );
 }

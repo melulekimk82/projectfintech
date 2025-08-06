@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users can only read/write their own user document
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Transactions can be read by participants, created by authenticated users
+    match /transactions/{transactionId} {
+      allow read: if request.auth != null && 
+        (request.auth.uid == resource.data.payerId || 
+         request.auth.uid == resource.data.receiverId);
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.payerId;
+      allow update: if request.auth != null && 
+        (request.auth.uid == resource.data.payerId || 
+         request.auth.uid == resource.data.receiverId);
+    }
+    
+    // Payment references can be read by the user who created them
+    match /payment_references/{referenceId} {
+      allow read, create: if request.auth != null && 
+        request.auth.uid == request.resource.data.userId;
+      allow update: if request.auth != null;
+    }
+    
+    // Invoices can be read by merchant or referenced client
+    match /invoices/{invoiceId} {
+      allow read, write: if request.auth != null && 
+        request.auth.uid == resource.data.merchantId;
+      allow read: if request.auth != null;
+      allow update: if request.auth != null && 
+        (request.auth.uid == resource.data.merchantId || 
+         'status' in request.resource.data && 
+         request.resource.data.status == 'paid');
+    }
+    
+    // Products can be read by anyone, managed by merchant
+    match /products/{productId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && 
+        request.auth.uid == resource.data.merchantId;
+    }
+    
+    // Admin access for payment verification
+    match /admin/{document=**} {
+      allow read, write: if request.auth != null && 
+        request.auth.token.admin == true;
+    }
+  }
+}

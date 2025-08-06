@@ -26,6 +26,11 @@ export interface Transaction {
     productCode?: string;
     receiverEmail?: string;
     merchantName?: string;
+    paymentMethod?: 'momo' | 'bank_transfer' | 'momo_send';
+    phoneNumber?: string;
+    momoReference?: string;
+    referenceNumber?: string;
+    depositRequestId?: string;
   };
 }
 
@@ -64,4 +69,23 @@ export interface Product {
   sku: string;
   category: string;
   description?: string;
+}
+
+export interface PaymentReference {
+  id: string;
+  referenceNumber: string;
+  userId: string;
+  amount: number;
+  method: 'bank_transfer' | 'momo_send';
+  status: 'pending' | 'verified' | 'rejected';
+  createdAt: Date;
+  verifiedAt?: Date;
+  verifiedBy?: string;
+}
+
+export interface MoMoPaymentRequest {
+  phoneNumber: string;
+  amount: number;
+  description: string;
+  userId: string;
 }

@@ -1,6 +1,7 @@
 import { collection, addDoc, query, where, orderBy, getDocs, doc, updateDoc, getDoc, runTransaction } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { Transaction } from '@/types';
+import { MoMoService } from './momoService';
 
 export class PaymentService {
   static async processPayment(
@@ -81,13 +82,20 @@ export class PaymentService {
   }
 
   static async topUpWallet(userId: string, amount: number): Promise<{ success: boolean; error?: string }> {
-    return this.processPayment(
-      userId,
-      userId,
-      amount,
-      'topup',
-      `Wallet Top-up - SZL ${amount.toFixed(2)}`
-    );
+    // For now, we'll use the existing method but in production this would be replaced
+    // with proper MoMo or manual deposit flows
+    try {
+      const result = await this.processPayment(
+        userId,
+        userId,
+        amount,
+        'topup',
+        `Wallet Top-up - SZL ${amount.toFixed(2)}`
+      );
+      return { success: result.success, error: result.error };
+    } catch (error) {
+      return { success: false, error: 'Top-up failed' };
+    }
   }
 
   static async getUserTransactions(userId: string): Promise<Transaction[]> {
@@ -145,6 +153,34 @@ export class PaymentService {
       console.error('Error fetching transactions:', error);
       return [];
     }
+  }
+
+  // MoMo payment integration
+  static async processMoMoTopUp(
+    userId: string,
+    phoneNumber: string,
+    amount: number
+  ): Promise<{ success: boolean; transactionId?: string; error?: string }> {
+    return MoMoService.processMoMoPayment({
+      phoneNumber,
+      amount,
+      description: `MoMo Wallet Top-up - SZL ${amount.toFixed(2)}`,
+      userId,
+    });
+  }
+
+  // Manual deposit request
+  static async createManualDepositRequest(
+    userId: string,
+    amount: number,
+    method: 'bank_transfer' | 'momo_send'
+  ): Promise<{ success: boolean; referenceNumber?: string; error?: string }> {
+    return MoMoService.createManualDepositRequest({
+      userId,
+      amount,
+      method,
+      description: `Manual ${method === 'bank_transfer' ? 'Bank Transfer' : 'MoMo Send'} - SZL ${amount.toFixed(2)}`,
+    });
   }
 
   static async findUserByEmail(email: string): Promise<{ success: boolean; userId?: string; error?: string }> {

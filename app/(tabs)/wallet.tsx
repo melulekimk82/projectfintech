@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ScrollView, Modal } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { PaymentService } from '@/services/paymentService';
-import { Wallet as WalletIcon, Plus, Send, FileText, Package, X, CreditCard, QrCode } from 'lucide-react-native';
+import { Wallet as WalletIcon, Plus, Send, FileText, Package, X, CreditCard, QrCode, Smartphone, Building2, Clock } from 'lucide-react-native';
 
 export default function WalletScreen() {
   const { userProfile, updateWalletBalance } = useAuth();
@@ -13,9 +13,14 @@ export default function WalletScreen() {
   const [productCode, setProductCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [showTopUpModal, setShowTopUpModal] = useState(false);
+  const [showMoMoModal, setShowMoMoModal] = useState(false);
+  const [showManualDepositModal, setShowManualDepositModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [showProductModal, setShowProductModal] = useState(false);
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [depositMethod, setDepositMethod] = useState<'bank_transfer' | 'momo_send'>('momo_send');
+  const [referenceNumber, setReferenceNumber] = useState('');
 
   const formatCurrency = (amount: number) => `SZL ${amount.toFixed(2)}`;
 
@@ -44,6 +49,75 @@ export default function WalletScreen() {
       }
     } catch (error) {
       Alert.alert('Error', 'Top-up failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleMoMoPayment = async () => {
+    const amount = parseFloat(topUpAmount);
+    if (!amount || amount <= 0 || !phoneNumber) {
+      Alert.alert('Error', 'Please enter valid payment details');
+      return;
+    }
+
+    if (amount > 10000) {
+      Alert.alert('Error', 'Maximum top-up amount is SZL 10,000');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await PaymentService.processMoMoTopUp(userProfile!.id, phoneNumber, amount);
+      if (result.success) {
+        await updateWalletBalance(userProfile!.walletBalance + amount);
+        setTopUpAmount('');
+        setPhoneNumber('');
+        setShowMoMoModal(false);
+        Alert.alert('Success', `MoMo payment of ${formatCurrency(amount)} completed successfully`);
+      } else {
+        Alert.alert('Error', result.error || 'MoMo payment failed');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'MoMo payment failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleManualDeposit = async () => {
+    const amount = parseFloat(topUpAmount);
+    if (!amount || amount <= 0) {
+      Alert.alert('Error', 'Please enter a valid amount');
+      return;
+    }
+
+    if (amount > 50000) {
+      Alert.alert('Error', 'Maximum deposit amount is SZL 50,000');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await PaymentService.createManualDepositRequest(
+        userProfile!.id,
+        amount,
+        depositMethod
+      );
+      
+      if (result.success) {
+        setReferenceNumber(result.referenceNumber!);
+        setTopUpAmount('');
+        Alert.alert(
+          'Deposit Request Created',
+          `Your reference number is: ${result.referenceNumber}\n\nPlease save this number and follow the payment instructions.`,
+          [{ text: 'OK' }]
+        );
+      } else {
+        Alert.alert('Error', result.error || 'Failed to create deposit request');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to create deposit request');
     } finally {
       setLoading(false);
     }
@@ -187,6 +261,8 @@ export default function WalletScreen() {
     setReceiverEmail('');
     setInvoiceId('');
     setProductCode('');
+    setPhoneNumber('');
+    setReferenceNumber('');
     modalSetter(false);
   };
 
@@ -214,13 +290,24 @@ export default function WalletScreen() {
         <View style={styles.actionsGrid}>
           <TouchableOpacity 
             style={styles.actionCard}
-            onPress={() => setShowTopUpModal(true)}
+            onPress={() => setShowMoMoModal(true)}
+          >
+            <View style={[styles.actionIcon, { backgroundColor: '#F59E0B' }]}>
+              <Smartphone size={24} color="#FFFFFF" />
+            </View>
+            <Text style={styles.actionTitle}>MoMo Pay</Text>
+            <Text style={styles.actionSubtitle}>MTN Mobile Money</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.actionCard}
+            onPress={() => setShowManualDepositModal(true)}
           >
             <View style={[styles.actionIcon, { backgroundColor: '#10B981' }]}>
-              <Plus size={24} color="#FFFFFF" />
+              <Building2 size={24} color="#FFFFFF" />
             </View>
-            <Text style={styles.actionTitle}>Top Up</Text>
-            <Text style={styles.actionSubtitle}>Add funds to wallet</Text>
+            <Text style={styles.actionTitle}>Manual Deposit</Text>
+            <Text style={styles.actionSubtitle}>Bank transfer or MoMo send</Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
@@ -280,18 +367,28 @@ export default function WalletScreen() {
         </View>
       </ScrollView>
 
-      {/* Top Up Modal */}
-      <Modal visible={showTopUpModal} transparent animationType="slide">
+      {/* MoMo Payment Modal */}
+      <Modal visible={showMoMoModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Top Up Wallet</Text>
-              <TouchableOpacity onPress={() => resetModal(setShowTopUpModal)}>
+              <Text style={styles.modalTitle}>MoMo Payment</Text>
+              <TouchableOpacity onPress={() => resetModal(setShowMoMoModal)}>
                 <X size={24} color="#9CA3AF" />
               </TouchableOpacity>
             </View>
             
             <View style={styles.modalBody}>
+              <Text style={styles.inputLabel}>Phone Number</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="+268 7612 3456 or 76123456"
+                placeholderTextColor="#6B7280"
+                value={phoneNumber}
+                onChangeText={setPhoneNumber}
+                keyboardType="phone-pad"
+              />
+              
               <Text style={styles.inputLabel}>Amount (SZL)</Text>
               <TextInput
                 style={styles.modalInput}
@@ -316,14 +413,111 @@ export default function WalletScreen() {
 
               <TouchableOpacity
                 style={[styles.modalButton, loading && styles.buttonDisabled]}
-                onPress={handleTopUp}
+                onPress={handleMoMoPayment}
                 disabled={loading}
               >
-                <CreditCard size={20} color="#FFFFFF" />
+                <Smartphone size={20} color="#FFFFFF" />
                 <Text style={styles.modalButtonText}>
-                  {loading ? 'Processing...' : 'Top Up Wallet'}
+                  {loading ? 'Processing MoMo...' : 'Pay with MoMo'}
                 </Text>
               </TouchableOpacity>
+              
+              <Text style={styles.paymentNote}>
+                You will receive an MTN MoMo prompt on your phone to authorize the payment.
+              </Text>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Manual Deposit Modal */}
+      <Modal visible={showManualDepositModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Manual Deposit</Text>
+              <TouchableOpacity onPress={() => resetModal(setShowManualDepositModal)}>
+                <X size={24} color="#9CA3AF" />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.modalBody}>
+              <Text style={styles.inputLabel}>Deposit Method</Text>
+              <View style={styles.methodSelector}>
+                <TouchableOpacity
+                  style={[styles.methodButton, depositMethod === 'momo_send' && styles.methodButtonActive]}
+                  onPress={() => setDepositMethod('momo_send')}
+                >
+                  <Smartphone size={20} color={depositMethod === 'momo_send' ? '#FFFFFF' : '#9CA3AF'} />
+                  <Text style={[styles.methodButtonText, depositMethod === 'momo_send' && styles.methodButtonTextActive]}>
+                    MoMo Send
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.methodButton, depositMethod === 'bank_transfer' && styles.methodButtonActive]}
+                  onPress={() => setDepositMethod('bank_transfer')}
+                >
+                  <Building2 size={20} color={depositMethod === 'bank_transfer' ? '#FFFFFF' : '#9CA3AF'} />
+                  <Text style={[styles.methodButtonText, depositMethod === 'bank_transfer' && styles.methodButtonTextActive]}>
+                    Bank Transfer
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              
+              <Text style={styles.inputLabel}>Amount (SZL)</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Enter amount"
+                placeholderTextColor="#6B7280"
+                value={topUpAmount}
+                onChangeText={setTopUpAmount}
+                keyboardType="numeric"
+              />
+              
+              <View style={styles.quickAmounts}>
+                {['100', '500', '1000', '5000'].map((amount) => (
+                  <TouchableOpacity
+                    key={amount}
+                    style={styles.quickAmountButton}
+                    onPress={() => setTopUpAmount(amount)}
+                  >
+                    <Text style={styles.quickAmountText}>SZL {amount}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {referenceNumber ? (
+                <View style={styles.referenceCard}>
+                  <Text style={styles.referenceTitle}>Reference Number Generated</Text>
+                  <Text style={styles.referenceNumber}>{referenceNumber}</Text>
+                  <Text style={styles.referenceInstructions}>
+                    {depositMethod === 'momo_send' 
+                      ? 'Send money to +268 7612 3456 using MTN MoMo with this reference number in the description.'
+                      : 'Transfer to Account: 1234567890, Bank: Standard Bank, Reference: ' + referenceNumber
+                    }
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.copyButton}
+                    onPress={() => {
+                      // In production, you'd use Clipboard API
+                      Alert.alert('Copied', 'Reference number copied to clipboard');
+                    }}
+                  >
+                    <Text style={styles.copyButtonText}>Copy Reference</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.modalButton, loading && styles.buttonDisabled]}
+                  onPress={handleManualDeposit}
+                  disabled={loading}
+                >
+                  <Clock size={20} color="#FFFFFF" />
+                  <Text style={styles.modalButtonText}>
+                    {loading ? 'Generating...' : 'Generate Reference'}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         </View>
@@ -723,6 +917,76 @@ const styles = StyleSheet.create({
   modalButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
+    fontWeight: '600',
+  },
+  paymentNote: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  methodSelector: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  methodButton: {
+    flex: 1,
+    backgroundColor: '#374151',
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#4B5563',
+  },
+  methodButtonActive: {
+    backgroundColor: '#3B82F6',
+    borderColor: '#3B82F6',
+  },
+  methodButtonText: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  methodButtonTextActive: {
+    color: '#FFFFFF',
+  },
+  referenceCard: {
+    backgroundColor: '#374151',
+    borderRadius: 12,
+    padding: 16,
+    gap: 12,
+  },
+  referenceTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  referenceNumber: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#10B981',
+    textAlign: 'center',
+    fontFamily: 'monospace',
+  },
+  referenceInstructions: {
+    fontSize: 14,
+    color: '#E5E7EB',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  copyButton: {
+    backgroundColor: '#3B82F6',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  copyButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
     fontWeight: '600',
   },
 });
